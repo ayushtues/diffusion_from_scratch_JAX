@@ -1,5 +1,5 @@
-
 import torch
+
 # import torch.nn.functional as F
 import jax.numpy as jnp
 import math
@@ -39,22 +39,28 @@ def betas_for_alpha_bar(num_diffusion_timesteps, alpha_bar, max_beta=0.999):
         betas.append(min(1 - alpha_bar(t2) / alpha_bar(t1), max_beta))
     return jnp.array(betas)
 
+
 def get_values():
-  beta_1 = 1e-4
-  beta_T = 0.02
+    beta_1 = 1e-4
+    beta_T = 0.02
 
-  beta_ts = jnp.linspace(beta_1, beta_T, 1000)
-#   beta_ts = get_cosine_schedule(1000)
-  alpha_ts = 1 - beta_ts
-  alpha_hat_ts  = jnp.cumprod(alpha_ts, 0)
-  alpha_hat_ts_prev = jnp.pad(alpha_hat_ts[:-1], (1, 0), 'constant', constant_values=1.0)
+    beta_ts = jnp.linspace(beta_1, beta_T, 1000)
+    #   beta_ts = get_cosine_schedule(1000)
+    alpha_ts = 1 - beta_ts
+    alpha_hat_ts = jnp.cumprod(alpha_ts, 0)
+    alpha_hat_ts_prev = jnp.pad(
+        alpha_hat_ts[:-1], (1, 0), "constant", constant_values=1.0
+    )
 
-  sqrt_alpha_ts = jnp.sqrt(alpha_ts)
-  sqrt_alpha_hat_ts = jnp.sqrt(alpha_hat_ts)
-  sqrt_alpha_hat_ts_2 = jnp.sqrt(1-alpha_hat_ts)
-  post_std = jnp.sqrt(((1-alpha_hat_ts_prev)/(1-alpha_hat_ts))*beta_ts)
+    sqrt_alpha_ts = jnp.sqrt(alpha_ts)
+    sqrt_alpha_hat_ts = jnp.sqrt(alpha_hat_ts)
+    sqrt_alpha_hat_ts_2 = jnp.sqrt(1 - alpha_hat_ts)
+    post_std = jnp.sqrt(((1 - alpha_hat_ts_prev) / (1 - alpha_hat_ts)) * beta_ts)
 
-  return sqrt_alpha_hat_ts, sqrt_alpha_hat_ts_2, alpha_ts, beta_ts, post_std
+    return sqrt_alpha_hat_ts, sqrt_alpha_hat_ts_2, alpha_ts, beta_ts, post_std
+
 
 def print_stats(x, name):
-  print(f"{name} max: {jnp.max(x)}, min: {jnp.min(x)}, mean: {jnp.mean(x)}, std: {jnp.std(x)}")
+    print(
+        f"{name} max: {jnp.max(x)}, min: {jnp.min(x)}, mean: {jnp.mean(x)}, std: {jnp.std(x)}"
+    )

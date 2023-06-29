@@ -4,6 +4,7 @@ from flax import linen as nn
 import math
 import jax.numpy as jnp
 from typing import Optional
+import jax
 
 
 def positionalencoding1d(d_model, length):
@@ -20,16 +21,10 @@ def positionalencoding1d(d_model, length):
     pe = jnp.zeros((length, d_model))
     position = jnp.expand_dims(jnp.arange(0, length), 1)
     div_term = jnp.exp(
-        (
-            jnp.arange(0, d_model, 2, dtype=jnp.float32)
-            * -(math.log(10000.0) / d_model)
-        )
+        (jnp.arange(0, d_model, 2, dtype=jnp.float32) * -(math.log(10000.0) / d_model))
     )
     pe = pe.at[:, 0::2].set(jnp.sin(position.astype(jnp.float32) * div_term))
     pe = pe.at[:, 1::2].set(jnp.cos(position.astype(jnp.float32) * div_term))
-
-    # pe[:, 0::2] = jnp.sin(position.astype(jnp.float32) * div_term)
-    # pe[:, 1::2] = jnp.cos(position.astype(jnp.float32) * div_term)
 
     return pe
 
@@ -42,14 +37,15 @@ def get_position_embeddings(t):
 
 class DoubleConv(nn.Module):
     """(convolution => [BN] => ReLU) * 2"""
-    out_channels : int
-    mid_channels : Optional[int] = None
+
+    out_channels: int
+    mid_channels: Optional[int] = None
 
     @nn.compact
     def __call__(self, x, train: bool):
-        if not self.mid_channels :
+        if not self.mid_channels:
             mid_channels = self.out_channels
-        else :
+        else:
             mid_channels = self.mid_channels
 
         x = nn.Conv(mid_channels, kernel_size=(3, 3), padding=1, use_bias=False)(x)
@@ -63,39 +59,49 @@ class DoubleConv(nn.Module):
 
 class Down(nn.Module):
     """Downscaling with maxpool then double conv"""
-    out_channels : int
+
+    out_channels: int
 
     @nn.compact
-    def __call__(self, x, train : bool):
-        x = nn.max_pool(x, (2,2), (2, 2))
+    def __call__(self, x, train: bool):
+        x = nn.max_pool(x, (2, 2), (2, 2))
         x = DoubleConv(self.out_channels)(x, train)
         return x
 
+
 class Up(nn.Module):
     """Upscaling then double conv"""
-    in_channels : int
-    out_channels : int
-    bilinear : Optional[bool] = False
+
+    in_channels: int
+    out_channels: int
+    bilinear: Optional[bool] = False
 
     def setup(self):
-
         if self.bilinear:
-            self.conv = DoubleConv(self.out_channels, self.in_channels//2)
+            self.conv = DoubleConv(self.out_channels, self.in_channels // 2)
         else:
-            self.up = nn.ConvTranspose( self.in_channels //2, [2, 2], (2, 2))
+            self.up = nn.ConvTranspose(self.in_channels // 2, [2, 2], (2, 2))
             self.conv = DoubleConv(self.out_channels)
 
-    def __call__(self, x1, x2, train:bool):
+    def __call__(self, x1, x2, train: bool):
         B, H, W, C = x1.shape
         if self.bilinear:
-            x = jax.image.resize(x1, (B*2, H*2, W*2, C*2), method='bilinear')
+            x = jax.image.resize(x1, (B * 2, H * 2, W * 2, C * 2), method="bilinear")
         else:
             x = self.up(x1)
 
         diffY = x2.shape[1] - x1.shape[1]
         diffX = x2.shape[2] - x1.shape[2]
 
-        x1 = jnp.pad(x1, [(0, 0), (diffX // 2, diffX - diffX // 2), (diffY // 2, diffY - diffY // 2), (0, 0)])
+        x1 = jnp.pad(
+            x1,
+            [
+                (0, 0),
+                (diffX // 2, diffX - diffX // 2),
+                (diffY // 2, diffY - diffY // 2),
+                (0, 0),
+            ],
+        )
         # if you have padding issues, see
         # https://github.com/HaiyongJiang/U-Net-Pytorch-Unstructured-Buggy/commit/0e854509c2cea854e247a9c615f175f76fbb2e3a
         # https://github.com/xiaopeng-liao/Pytorch-UNet/commit/8ebac70e633bac59fc22bb5195e513d5832fb3bd
@@ -103,23 +109,20 @@ class Up(nn.Module):
         return self.conv(x, train)
 
 
-
 class OutConv(nn.Module):
-    out_channels : int
+    out_channels: int
 
     @nn.compact
     def __call__(self, x):
-        return nn.Conv(self.out_channels, (1,1))(x)
-
+        return nn.Conv(self.out_channels, (1, 1))(x)
 
 
 class UNet(nn.Module):
-    n_channels : int
-    n_classes : int
-    bilinear : bool
+    n_channels: int
+    n_classes: int
+    bilinear: bool
 
     def setup(self):
-
         self.inc = DoubleConv(64)
         self.down1 = Down(128)
         self.down2 = Down(256)
@@ -135,32 +138,20 @@ class UNet(nn.Module):
         self.class_embed = nn.Dense(32)
         input_size = [32, 64, 128, 256, 512, 1024, 512, 256, 128, 64]
 
-        self.linears = [
-                nn.Dense(input_size[i + 1])
-                for i in range(len(input_size) - 1)
-                    ]
+        self.linears = [nn.Dense(input_size[i + 1]) for i in range(len(input_size) - 1)]
 
     def __call__(self, x, t, y=None, train=True):
-        # print("x:", x.shape)
         x1 = self.inc(x, train)
-        # print("x1:", x1.shape)
         if y is not None:
             y_embed = self.class_embed(y)
             t = t + y_embed
-        # print("t:", t.shape)
         t1 = self.linears[0](t)
-        # print("t1:", t1.shape)
         t1 = jnp.expand_dims(jnp.expand_dims(t1, 1), 1)
-        # print("t1:", t1.shape)
         x1 = x1 + t1
-        # print("x1:", x1.shape)
         x2 = self.down1(x1, train)
-        # print("x2: ", x2.shape)
         t1 = self.linears[1](t)
         t1 = jnp.expand_dims(jnp.expand_dims(t1, 1), 1)
-        # print("t1:", t1.shape)
         x2 = x2 + t1
-        # print("x2: ", x2.shape)
         x3 = self.down2(x2, train)
         t1 = self.linears[2](t)
         t1 = jnp.expand_dims(jnp.expand_dims(t1, 1), 1)
@@ -191,5 +182,3 @@ class UNet(nn.Module):
         x = x + t1
         logits = self.outc(x)
         return logits
-
-
