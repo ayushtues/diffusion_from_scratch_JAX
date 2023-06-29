@@ -14,10 +14,13 @@ from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 import numpy as np
 import orbax.checkpoint
+from typing import Any
 
 
 os.environ["JAX_PLATFORM_NAME"] = "cpu"
 
+class TrainState(train_state.TrainState):
+  batch_stats: Any
 
 
 def squared_error(x1, x2):
@@ -32,12 +35,13 @@ def train_step(state, batch):
     eps = random.normal(random.PRNGKey(0), x.shape)
     t_embed = get_position_embeddings(jnp.squeeze(t, -1))
 
-    def loss_fn(params):
-        eps_pred = model.apply(params, x, t, t_embed, eps, None)
-        return jnp.mean(jax.vmap(squared_error)(eps, eps_pred))
-
-    loss, grads  = jax.value_and_grad(loss_fn)(state.params)
-    return loss, state.apply_gradients(grads=grads)
+    def loss_fn(params, batch_stats):
+        eps_pred, updates = model.apply({'params': params, 'batch_stats': batch_stats}, x, t, t_embed, eps, None, train=True, mutable=['batch_stats'])
+        return jnp.mean(jax.vmap(squared_error)(eps, eps_pred)), updates
+    (loss, updates), grads  = jax.value_and_grad(loss_fn, has_aux=True)(state.params, state.batch_stats)
+    state = state.apply_gradients(grads=grads)
+    state = state.replace(batch_stats=updates['batch_stats'])
+    return loss, state
 
 
 dataloader = get_dataloader()
@@ -59,10 +63,14 @@ y = y.cpu().numpy()
 t = t.cpu().numpy().astype(jnp.int32)
 eps = random.normal(random.PRNGKey(0), x.shape)
 t_embed = get_position_embeddings(jnp.squeeze(t, -1))
-params = model.init(random.PRNGKey(0), x, t, t_embed, eps, None)
-state = train_state.TrainState.create(
+variables = model.init(random.PRNGKey(0), x, t, t_embed, eps, None)
+params = variables['params']
+batch_stats = variables['batch_stats']
+
+state = TrainState.create(
     apply_fn=model.apply,
     params=params,
+    batch_stats=batch_stats,
     tx=optax.adam(1e-3),
 )
 

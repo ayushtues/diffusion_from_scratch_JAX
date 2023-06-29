@@ -46,17 +46,17 @@ class DoubleConv(nn.Module):
     mid_channels : Optional[int] = None
 
     @nn.compact
-    def __call__(self, x):
+    def __call__(self, x, train: bool):
         if not self.mid_channels :
             mid_channels = self.out_channels
         else :
             mid_channels = self.mid_channels
 
         x = nn.Conv(mid_channels, kernel_size=(3, 3), padding=1, use_bias=False)(x)
-        x = nn.BatchNorm(use_running_average=True)(x)
+        x = nn.BatchNorm(use_running_average=not train)(x)
         x = nn.relu(x)
         x = nn.Conv(self.out_channels, kernel_size=(3, 3), padding=1, use_bias=False)(x)
-        x = nn.BatchNorm(use_running_average=True)(x)
+        x = nn.BatchNorm(use_running_average=not train)(x)
         x = nn.relu(x)
         return x
 
@@ -66,9 +66,9 @@ class Down(nn.Module):
     out_channels : int
 
     @nn.compact
-    def __call__(self, x):
+    def __call__(self, x, train : bool):
         x = nn.max_pool(x, (2,2), (2, 2))
-        x = DoubleConv(self.out_channels)(x)
+        x = DoubleConv(self.out_channels)(x, train)
         return x
 
 class Up(nn.Module):
@@ -85,7 +85,7 @@ class Up(nn.Module):
             self.up = nn.ConvTranspose( self.in_channels //2, [2, 2], (2, 2))
             self.conv = DoubleConv(self.out_channels)
 
-    def __call__(self, x1, x2):
+    def __call__(self, x1, x2, train:bool):
         B, H, W, C = x1.shape
         if self.bilinear:
             x = jax.image.resize(x1, (B*2, H*2, W*2, C*2), method='bilinear')
@@ -100,7 +100,7 @@ class Up(nn.Module):
         # https://github.com/HaiyongJiang/U-Net-Pytorch-Unstructured-Buggy/commit/0e854509c2cea854e247a9c615f175f76fbb2e3a
         # https://github.com/xiaopeng-liao/Pytorch-UNet/commit/8ebac70e633bac59fc22bb5195e513d5832fb3bd
         x = jnp.concatenate([x2, x1], axis=3)
-        return self.conv(x)
+        return self.conv(x, train)
 
 
 
@@ -140,9 +140,9 @@ class UNet(nn.Module):
                 for i in range(len(input_size) - 1)
                     ]
 
-    def __call__(self, x, t, y=None):
+    def __call__(self, x, t, y=None, train=True):
         # print("x:", x.shape)
-        x1 = self.inc(x)
+        x1 = self.inc(x, train)
         # print("x1:", x1.shape)
         if y is not None:
             y_embed = self.class_embed(y)
@@ -154,38 +154,38 @@ class UNet(nn.Module):
         # print("t1:", t1.shape)
         x1 = x1 + t1
         # print("x1:", x1.shape)
-        x2 = self.down1(x1)
+        x2 = self.down1(x1, train)
         # print("x2: ", x2.shape)
         t1 = self.linears[1](t)
         t1 = jnp.expand_dims(jnp.expand_dims(t1, 1), 1)
         # print("t1:", t1.shape)
         x2 = x2 + t1
         # print("x2: ", x2.shape)
-        x3 = self.down2(x2)
+        x3 = self.down2(x2, train)
         t1 = self.linears[2](t)
         t1 = jnp.expand_dims(jnp.expand_dims(t1, 1), 1)
         x3 = x3 + t1
-        x4 = self.down3(x3)
+        x4 = self.down3(x3, train)
         t1 = self.linears[3](t)
         t1 = jnp.expand_dims(jnp.expand_dims(t1, 1), 1)
         x4 = x4 + t1
-        x5 = self.down4(x4)
+        x5 = self.down4(x4, train)
         t1 = self.linears[4](t)
         t1 = jnp.expand_dims(jnp.expand_dims(t1, 1), 1)
         x5 = x5 + t1
-        x = self.up1(x5, x4)
+        x = self.up1(x5, x4, train)
         t1 = self.linears[5](t)
         t1 = jnp.expand_dims(jnp.expand_dims(t1, 1), 1)
         x = x + t1
-        x = self.up2(x, x3)
+        x = self.up2(x, x3, train)
         t1 = self.linears[6](t)
         t1 = jnp.expand_dims(jnp.expand_dims(t1, 1), 1)
         x = x + t1
-        x = self.up3(x, x2)
+        x = self.up3(x, x2, train)
         t1 = self.linears[7](t)
         t1 = jnp.expand_dims(jnp.expand_dims(t1, 1), 1)
         x = x + t1
-        x = self.up4(x, x1)
+        x = self.up4(x, x1, train)
         t1 = self.linears[8](t)
         t1 = jnp.expand_dims(jnp.expand_dims(t1, 1), 1)
         x = x + t1

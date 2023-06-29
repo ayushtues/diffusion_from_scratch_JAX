@@ -41,20 +41,20 @@ class Diffusion(nn.Module):
     #                 if old is not None:
     #                     ema_params.data = old * self.ema_decay + new * (1 - self.ema_decay)
 
-    def __call__(self, x, t, t_embed, eps, y=None):
+    def __call__(self, x, t, t_embed, eps, y=None, train=True):
         c1 = jnp.expand_dims(jnp.expand_dims(jnp.expand_dims(jnp.take_along_axis(self.sqrt_alpha_hat_ts, jnp.squeeze(t, -1), 0), -1), -1), -1)
         # TODO, move this to the dataset itself instead of using gather
         c2 = jnp.expand_dims(jnp.expand_dims(jnp.expand_dims(jnp.take_along_axis(self.sqrt_alpha_hat_ts_2, jnp.squeeze(t, -1), 0), -1), -1), -1)
 
         input_x = x * c1 + eps * c2
         if self.class_conditioned:
-            eps_pred = self.model(input_x, t_embed, y)
+            eps_pred = self.model(input_x, t_embed, y, train)
         else:
-            eps_pred = self.model(input_x, t_embed)
+            eps_pred = self.model(input_x, t_embed, None, train)
 
         return eps_pred
 
-    def sample(self, y=None):
+    def sample(self, y=None, train=False):
         if y is None:
             y = jnp.zeros([10])
             y = y.at[0].set(1)
@@ -63,9 +63,9 @@ class Diffusion(nn.Module):
         for i in reversed(range(10)):
             t_embed = jnp.expand_dims(get_position_embeddings(i), 0)
             if self.class_conditioned:
-                eps_pred = self.model(x, t_embed, y)
+                eps_pred = self.model(x, t_embed, y, train)
             else:
-                eps_pred = self.model(x, t_embed)
+                eps_pred = self.model(x, t_embed, None, train)
             eps_pred = (
                 jnp.expand_dims(jnp.expand_dims(jnp.expand_dims(self.alpha_ts_2[i], -1), -1), -1)
                 / jnp.expand_dims(jnp.expand_dims(jnp.expand_dims(self.sqrt_alpha_hat_ts_2[i], -1), -1), -1) 

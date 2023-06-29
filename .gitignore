@@ -1,2 +1,5 @@
 data/*
-*.pyc
+**.pyc
+ckpt/
+runs/
+**.txt
