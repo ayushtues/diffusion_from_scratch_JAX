@@ -83,7 +83,7 @@ class Diffusion(nn.Module):
                 z = jnp.zeros(x.shape)
             x = x + z
 
-            if i % 50 == 0:
+            if i % 2 == 0:
                 x_img = (x + 1.0) / 2
                 x_returned.append(jnp.squeeze(x_img, 0))
 
