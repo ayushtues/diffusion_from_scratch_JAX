@@ -20,8 +20,10 @@ t = t.cpu().numpy().astype(jnp.int32)
 eps = random.normal(random.PRNGKey(0), x.shape)
 t_embed = get_position_embeddings(jnp.squeeze(t, -1))
 params = model.init(random.PRNGKey(0), x, t, t_embed, eps, None)
-out  = model.apply(params, x, t, t_embed, eps, None)
-print(out.shape)
+# out  = model.apply(params, x, t, t_embed, eps, None)
+out  = model.apply(params, method='sample')
+print(out[0].shape)
+print(len(out))
 
 
 

@@ -5,6 +5,7 @@ from copy import deepcopy
 from flax import linen as nn
 from typing import Optional
 import jax.numpy as jnp
+from jax import random
 
 class Diffusion(nn.Module):
     sqrt_alpha_hat_ts : float
@@ -53,43 +54,37 @@ class Diffusion(nn.Module):
 
         return eps_pred
 
-    # @torch.no_grad()
-    # def sample(self, device, y=None, classifier=None):
-    #     if y is None:
-    #         y = torch.zeros([1], device=device, dtype=torch.long)
-    #         y = F.one_hot(y, 10).float()
-    #     x = torch.randn([1, 1, 32, 32], device=device)
-    #     x_returned = []
-    #     for i in reversed(range(1000)):
-    #         t_embed = get_position_embeddings(i, device).unsqueeze(0)
-    #         if self.class_conditioned:
-    #             eps_pred = self.ema_model(x, t_embed, y)
-    #         else:
-    #             eps_pred = self.ema_model(x, t_embed)
-    #         eps_pred = (
-    #             self.alpha_ts_2[i].unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
-    #             / self.sqrt_alpha_hat_ts_2[i].unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
-    #         ) * eps_pred
-    #         x_old = x
-    #         x = x - eps_pred
-    #         x = x * (
-    #             1 / self.sqrt_alpha_ts[i].unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
-    #         )
-    #         if i != 0:
-    #             z = torch.randn_like(x, device=device)
-    #             z = self.sigma_ts[i].unsqueeze(-1).unsqueeze(-1).unsqueeze(-1) * z
+    def sample(self, y=None):
+        if y is None:
+            y = jnp.zeros([10])
+            y = y.at[0].set(1)
+        x = random.normal(random.PRNGKey(0), [1, 32, 32, 1])
+        x_returned = []
+        for i in reversed(range(10)):
+            t_embed = jnp.expand_dims(get_position_embeddings(i), 0)
+            if self.class_conditioned:
+                eps_pred = self.model(x, t_embed, y)
+            else:
+                eps_pred = self.model(x, t_embed)
+            eps_pred = (
+                jnp.expand_dims(jnp.expand_dims(jnp.expand_dims(self.alpha_ts_2[i], -1), -1), -1)
+                / jnp.expand_dims(jnp.expand_dims(jnp.expand_dims(self.sqrt_alpha_hat_ts_2[i], -1), -1), -1) 
+            ) * eps_pred
+            x_old = x
+            x = x - eps_pred
+            x = x * (
+                1 /  jnp.expand_dims(jnp.expand_dims(jnp.expand_dims(self.sqrt_alpha_ts[i], -1), -1), -1) 
+            )
+            if i != 0:
+                z = random.normal(random.PRNGKey(0), x.shape)
+                z = jnp.expand_dims(jnp.expand_dims(jnp.expand_dims(self.sigma_ts[i], -1), -1), -1) * z
 
-    #             if classifier is not None:
-    #                 t_embed2 = get_position_embeddings(i-1, device).unsqueeze(0)
-    #                 y_index = torch.argmax(y, dim=1)
-    #                 gradient = cond_fn(x_old, t_embed2, classifier, y_index)
-    #                 x = x + self.beta_ts[i]*gradient*1.0
-    #         else:
-    #             z = torch.zeros_like(x, device=device)
-    #         x = x + z
+            else:
+                z = jnp.zeros(x.shape)
+            x = x + z
 
-    #         if i % 50 == 0:
-    #             x_img = (x + 1.0) / 2
-    #             x_returned.append(x_img.squeeze(0).detach())
+            if i % 50 == 0:
+                x_img = (x + 1.0) / 2
+                x_returned.append(jnp.squeeze(x_img, 0))
 
-    #     return x_returned
+        return x_returned
