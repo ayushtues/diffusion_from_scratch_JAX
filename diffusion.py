@@ -6,7 +6,7 @@ from flax import linen as nn
 from typing import Optional
 import jax.numpy as jnp
 from jax import random
-
+from tqdm import tqdm
 
 class Diffusion(nn.Module):
     sqrt_alpha_hat_ts: float
@@ -75,19 +75,19 @@ class Diffusion(nn.Module):
 
         return eps_pred
 
-    def sample(self,  rng, y=None, train=False):
+    def sample(self,  rng, y=None, train=True):
         if y is None:
             y = jnp.zeros([10])
             y = y.at[0].set(1)
+        if not self.class_conditioned:
+            y = None
         rng, key = random.split(rng, 2)
         x = random.normal(key, [1, 32, 32, 1])
         x_returned = []
-        for i in reversed(range(10)):
+        for i in tqdm(reversed(range(1000))):
+            
             t_embed = jnp.expand_dims(get_position_embeddings(i), 0)
-            if self.class_conditioned:
-                eps_pred = self.model(x, t_embed, y, train)
-            else:
-                eps_pred = self.model(x, t_embed, None, train)
+            eps_pred = self.model(x, t_embed, y, train)
             eps_pred = (
                 jnp.expand_dims(
                     jnp.expand_dims(jnp.expand_dims(self.alpha_ts_2[i], -1), -1), -1
@@ -99,7 +99,6 @@ class Diffusion(nn.Module):
                     -1,
                 )
             ) * eps_pred
-            x_old = x
             x = x - eps_pred
             x = x * (
                 1
@@ -107,6 +106,7 @@ class Diffusion(nn.Module):
                     jnp.expand_dims(jnp.expand_dims(self.sqrt_alpha_ts[i], -1), -1), -1
                 )
             )
+
             if i != 0:
                 z = random.normal(rng, x.shape)
                 z = (
@@ -120,7 +120,7 @@ class Diffusion(nn.Module):
                 z = jnp.zeros(x.shape)
             x = x + z
 
-            if i % 2 == 0:
+            if i % 50 == 0:
                 x_img = (x + 1.0) / 2
                 x_returned.append(jnp.squeeze(x_img, 0))
 
