@@ -5,19 +5,16 @@ import math
 import jax.numpy as jnp
 from typing import Optional
 import jax
+from functools import partial
 
-
+@partial(jax.jit, static_argnames=['d_model', 'length'])
 def positionalencoding1d(d_model, length):
     """
     :param d_model: dimension of the model
     :param length: length of positions
     :return: length*d_model position matrix
     """
-    if d_model % 2 != 0:
-        raise ValueError(
-            "Cannot use sin/cos positional encoding with "
-            "odd dim (got dim={:d})".format(d_model)
-        )
+
     pe = jnp.zeros((length, d_model))
     position = jnp.expand_dims(jnp.arange(0, length), 1)
     div_term = jnp.exp(
@@ -27,7 +24,6 @@ def positionalencoding1d(d_model, length):
     pe = pe.at[:, 1::2].set(jnp.cos(position.astype(jnp.float32) * div_term))
 
     return pe
-
 
 def get_position_embeddings(t):
     x = positionalencoding1d(32, 1000)

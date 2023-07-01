@@ -14,25 +14,21 @@ from datetime import datetime
 import numpy as np
 import orbax.checkpoint
 from typing import Any
+# from jax import config
+# config.update("jax_disable_jit", True)
 
-
-os.environ["JAX_PLATFORM_NAME"] = "cpu"
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
 
 class TrainState(train_state.TrainState):
   batch_stats: Any
 
-
+@jax.jit
 def squared_error(x1, x2):
     return jnp.inner(x1-x2, x1-x2) / 2.0
-
+@jax.jit
 def train_step(state, batch, rng):
     x, y, t = batch
-    x = x.transpose(1,2).transpose(2, 3)
-    x = x.cpu().numpy()
-    y = y.cpu().numpy()
-    t = t.cpu().numpy().astype(jnp.int32)
     eps = random.normal(rng, x.shape)
     t_embed = get_position_embeddings(jnp.squeeze(t, -1))
 
@@ -91,6 +87,12 @@ def train_one_epoch(rng, state, epoch_index, batches, tb_writer, run_path, save_
         batch = epoch_index * len(dataloader) + i + 1
         if batch == batches:
             return running_loss / (i + 1)
+        x, y, t = data
+        x = x.transpose(1,2).transpose(2, 3)
+        x = x.cpu().numpy()
+        y = y.cpu().numpy()
+        t = t.cpu().numpy().astype(jnp.int32)
+        data = (x, y, t)
         rng, key = random.split(rng, 2)
         loss, state = train_step(state, data, key)
         loss = np.array(loss)
