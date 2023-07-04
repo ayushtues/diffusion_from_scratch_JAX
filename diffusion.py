@@ -21,11 +21,6 @@ class Diffusion(nn.Module):
 
     def setup(self):
         self.model = UNet(self.n_channels, self.n_classes, bilinear=False)
-        self.ema_model = deepcopy(self.model)
-        self.ema_decay = 0.999
-        self.ema_start = 1000
-        self.ema_update_rate = 1
-        self.step = 0
 
         self.sqrt_alpha_ts = jnp.sqrt(self.alpha_ts)
         self.sigma_ts = jnp.sqrt(self.beta_ts)
