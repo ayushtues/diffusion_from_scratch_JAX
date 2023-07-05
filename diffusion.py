@@ -7,6 +7,8 @@ from typing import Optional
 import jax.numpy as jnp
 from jax import random
 from tqdm import tqdm
+import jax
+
 
 class Diffusion(nn.Module):
     sqrt_alpha_hat_ts: float
@@ -25,17 +27,6 @@ class Diffusion(nn.Module):
         self.sqrt_alpha_ts = jnp.sqrt(self.alpha_ts)
         self.sigma_ts = jnp.sqrt(self.beta_ts)
         self.alpha_ts_2 = 1 - self.alpha_ts
-
-    # def update_ema(self):
-    #     self.step += 1
-    #     if self.step % self.ema_update_rate == 0:
-    #         if self.step < self.ema_start:
-    #             self.ema_model.load_state_dict(self.model.state_dict())
-    #         else:
-    #             for current_params, ema_params in zip(self.model.parameters(), self.ema_model.parameters()):
-    #                 old, new = ema_params.data, current_params.data
-    #                 if old is not None:
-    #                     ema_params.data = old * self.ema_decay + new * (1 - self.ema_decay)
 
     def __call__(self, x, t, t_embed, eps, y=None, train=True):
         c1 = jnp.expand_dims(
@@ -70,53 +61,10 @@ class Diffusion(nn.Module):
 
         return eps_pred
 
-    def sample(self,  rng, y=None, train=True):
-        if y is None:
-            y = jnp.zeros([10])
-            y = y.at[0].set(1)
-        if not self.class_conditioned:
-            y = None
-        rng, key = random.split(rng, 2)
-        x = random.normal(key, [1, 32, 32, 1])
-        x_returned = []
-        for i in tqdm(reversed(range(1000))):
-            
-            t_embed = jnp.expand_dims(get_position_embeddings(i), 0)
-            eps_pred = self.model(x, t_embed, y, train)
-            eps_pred = (
-                jnp.expand_dims(
-                    jnp.expand_dims(jnp.expand_dims(self.alpha_ts_2[i], -1), -1), -1
-                )
-                / jnp.expand_dims(
-                    jnp.expand_dims(
-                        jnp.expand_dims(self.sqrt_alpha_hat_ts_2[i], -1), -1
-                    ),
-                    -1,
-                )
-            ) * eps_pred
-            x = x - eps_pred
-            x = x * (
-                1
-                / jnp.expand_dims(
-                    jnp.expand_dims(jnp.expand_dims(self.sqrt_alpha_ts[i], -1), -1), -1
-                )
-            )
+    def forward(self, x, t_embed, y=None, train=True):
+        return self.model(x, t_embed, y, train)
+    
 
-            if i != 0:
-                z = random.normal(rng, x.shape)
-                z = (
-                    jnp.expand_dims(
-                        jnp.expand_dims(jnp.expand_dims(self.sigma_ts[i], -1), -1), -1
-                    )
-                    * z
-                )
 
-            else:
-                z = jnp.zeros(x.shape)
-            x = x + z
 
-            if i % 50 == 0:
-                x_img = (x + 1.0) / 2
-                x_returned.append(jnp.squeeze(x_img, 0))
 
-        return x_returned

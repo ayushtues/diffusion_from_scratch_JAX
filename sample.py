@@ -6,59 +6,76 @@ import os
 from diffusion import Diffusion
 from models import UNet, get_position_embeddings
 from jax import random
-from flax.training import train_state, checkpoints, orbax_utils
-import optax
 import jax
-from torch.utils.tensorboard import SummaryWriter
-from datetime import datetime
 import numpy as np
 import orbax.checkpoint
 from typing import Any
-# from jax import config
-# config.update("jax_disable_jit", True)
-
+from tqdm import tqdm
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
-
-class TrainState(train_state.TrainState):
-  batch_stats: Any
-
-
-dataloader = get_dataloader()
 sqrt_alpha_hat_ts, sqrt_alpha_hat_ts_2, alpha_ts, beta_ts, post_std = get_values()
 model = Diffusion(sqrt_alpha_hat_ts, sqrt_alpha_hat_ts_2, alpha_ts, beta_ts, post_std, 1, 1)
+sqrt_alpha_ts = jnp.sqrt(alpha_ts)
+sigma_ts = jnp.sqrt(beta_ts)
+alpha_ts_2 = 1 - alpha_ts
 
 rng = random.PRNGKey(0)
-rng, eps_key, init_key = random.split(rng, 3)
-x, y, t = next(iter(dataloader))
-x = x.transpose(1,2).transpose(2, 3)
-x = x.cpu().numpy()
-y = y.cpu().numpy()
-t = t.cpu().numpy().astype(jnp.int32)
-eps = random.normal(eps_key, x.shape)
-t_embed = get_position_embeddings(jnp.squeeze(t, -1))
-variables = model.init(init_key, x, t, t_embed, eps, None)
-params = variables['params']
-batch_stats = variables['batch_stats']
-state = TrainState.create(
-    apply_fn=model.apply,
-    params=params,
-    batch_stats=batch_stats,
-    tx=optax.adam(1e-3),
-)
-
-ckpt = {'state' : state}
 orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-raw_restored = orbax_checkpointer.restore('ckpt/colab/default')
+raw_restored = orbax_checkpointer.restore('ckpt/3000/default')
 state = raw_restored['state']
-# print(state)
-# for key in state.keys():
-    # print(key)
-
-# exit()
 
 
-sample, updates = model.apply({'params': state['params'], 'batch_stats': state['batch_stats']}, rng, mutable=['batch_stats'], method='sample')
-sample = np.array(sample)
+@jax.jit
+def sample_diffusion(params, batch_stats, x, t_embed, y, z, alpha_ts_2, sqrt_alpha_hat_ts_2, sqrt_alpha_ts):
+        eps_pred, updates =  model.apply({'params' : params, 'batch_stats' : batch_stats}, x, t_embed, y=y, train=True, method='forward', mutable=['batch_stats'])
+        eps_pred = (
+            jnp.expand_dims(
+                jnp.expand_dims(jnp.expand_dims(alpha_ts_2, -1), -1), -1
+            )
+            / jnp.expand_dims(
+                jnp.expand_dims(
+                    jnp.expand_dims(sqrt_alpha_hat_ts_2, -1), -1
+                ),
+                -1,
+            )
+        ) * eps_pred
+        x = x - eps_pred
+        x = x * (
+            1
+            / jnp.expand_dims(
+                jnp.expand_dims(jnp.expand_dims(sqrt_alpha_ts, -1), -1), -1
+            )
+        )
+        x = x + z
+        return x, updates['batch_stats']
+
+y = None
+rng, key = random.split(rng, 2)
+x = random.normal(key, [1, 32, 32, 1])
+x_returned = []
+params = state['params']
+batch_stats = state['batch_stats']
+
+for i in tqdm(reversed(range(1000))):
+    rng, key = random.split(rng, 2)
+    t_embed = jnp.expand_dims(get_position_embeddings(i), 0)
+    if i != 0:
+        z = random.normal(key, x.shape)
+        z = (
+            jnp.expand_dims(
+                jnp.expand_dims(jnp.expand_dims(sigma_ts[i], -1), -1), -1
+            )
+            * z
+        )
+
+    else:
+        z = jnp.zeros(x.shape)
+    x, batch_stats = sample_diffusion(params, batch_stats, x, t_embed, y, z, alpha_ts_2[i], sqrt_alpha_hat_ts_2[i], sqrt_alpha_ts[i])
+
+    if i % 50 == 0:
+        x_img = (x + 1.0) / 2
+        x_returned.append(jnp.squeeze(x_img, 0))
+
+sample = np.array(x_returned)
 np.save('sample.npy', sample)
 print(len(sample))
