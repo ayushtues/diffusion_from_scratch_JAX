@@ -22,7 +22,8 @@ class Diffusion(nn.Module):
     class_conditioned: Optional[bool] = False
 
     def setup(self):
-        self.model = UNet(self.n_channels, self.n_classes, bilinear=False)
+        # self.model = UNet(self.n_channels, self.n_classes, bilinear=False)
+        self.model = lambda x, y, z, t : x
 
         self.sqrt_alpha_ts = jnp.sqrt(self.alpha_ts)
         self.sigma_ts = jnp.sqrt(self.beta_ts)
@@ -52,8 +53,12 @@ class Diffusion(nn.Module):
             ),
             -1,
         )
-
+        # print("x: ", x.shape)
+        # print("eps: ", eps.shape)
+        # print("c1: ", c1.shape)
+        # print("c2: ", c2.shape)
         input_x = x * c1 + eps * c2
+        # print("input_x: ", input_x.shape)
         if self.class_conditioned:
             eps_pred = self.model(input_x, t_embed, y, train)
         else:

@@ -45,10 +45,10 @@ class DoubleConv(nn.Module):
             mid_channels = self.mid_channels
 
         x = nn.Conv(mid_channels, kernel_size=(3, 3), padding=1, use_bias=False)(x)
-        x = nn.BatchNorm(use_running_average=not train)(x)
+        # x = nn.BatchNorm(use_running_average=not train)(x)
         x = nn.relu(x)
         x = nn.Conv(self.out_channels, kernel_size=(3, 3), padding=1, use_bias=False)(x)
-        x = nn.BatchNorm(use_running_average=not train)(x)
+        # x = nn.BatchNorm(use_running_average=not train)(x)
         x = nn.relu(x)
         return x
 

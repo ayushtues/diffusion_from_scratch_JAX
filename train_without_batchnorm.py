@@ -21,9 +21,6 @@ from copy import deepcopy
 os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
 
 
-class TrainState(train_state.TrainState):
-    batch_stats: Any
-
 @jax.jit
 def squared_error(x1, x2):
     return jnp.inner(x1 - x2, x1 - x2) / 2.0
@@ -35,24 +32,22 @@ def train_step(state, batch, rng):
     eps = random.normal(rng, x.shape)
     t_embed = get_position_embeddings(jnp.squeeze(t, -1))
 
-    def loss_fn(params, batch_stats):
-        eps_pred, updates = model.apply(
-            {"params": params, "batch_stats": batch_stats},
+    def loss_fn(params):
+        eps_pred = model.apply(
+            {"params": params},
             x,
             t,
             t_embed,
             eps,
             None,
             train=True,
-            mutable=["batch_stats"],
         )
-        return jnp.mean(jax.vmap(squared_error)(eps, eps_pred)), updates
+        return jnp.mean(jax.vmap(squared_error)(eps, eps_pred))
 
-    (loss, updates), grads = jax.value_and_grad(loss_fn, has_aux=True)(
-        state.params, state.batch_stats
+    loss, grads = jax.value_and_grad(loss_fn)(
+        state.params
     )
     state = state.apply_gradients(grads=grads)
-    state = state.replace(batch_stats=updates["batch_stats"])
     return loss, state
 
 
@@ -67,7 +62,7 @@ batches = 10000
 EPOCHS = int(batches / len(dataloader) + 1)
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 # run_path = "runs/fashion_trainer_{}".format(timestamp)
-run_path = "runs/with_batchnorm{}".format(timestamp)
+run_path = "runs/without_batchnorm{}".format(timestamp)
 
 writer = SummaryWriter(run_path)
 
@@ -82,7 +77,6 @@ eps = random.normal(eps_key, x.shape)
 t_embed = get_position_embeddings(jnp.squeeze(t, -1))
 variables = model.init(init_key, x, t, t_embed, eps, None)
 params = variables["params"]
-batch_stats = variables["batch_stats"]
 
 @jax.jit
 def update_moment(updates, moments, decay, order):
@@ -91,10 +85,9 @@ def update_moment(updates, moments, decay, order):
       lambda g, t: (1 - decay) * (g ** order) + decay * t, updates, moments)
 
 
-state = TrainState.create(
+state = train_state.TrainState.create(
     apply_fn=model.apply,
     params=params,
-    batch_stats=batch_stats,
     tx=optax.adam(3e-4),
 )
 
