@@ -26,7 +26,7 @@ class TrainState(train_state.TrainState):
 
 @jax.jit
 def squared_error(x1, x2):
-    return jnp.inner(x1 - x2, x1 - x2) / 2.0
+    return ((x1-x2)**2).mean()
 
 
 @jax.jit
